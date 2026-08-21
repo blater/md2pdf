@@ -13,8 +13,7 @@ Install the two runtime dependencies with Homebrew:
 brew install pandoc weasyprint
 ```
 
-After the Homebrew tap is published, the application and its dependencies can
-also be installed together:
+The application and its dependencies can also be installed together:
 
 ```sh
 brew install blater/tap/md2pdf
