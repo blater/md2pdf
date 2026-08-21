@@ -5,6 +5,23 @@ PDF. It uses Pandoc for accurate Markdown parsing and WeasyPrint for high-qualit
 paged HTML/CSS rendering. The print stylesheet is embedded in the script, so
 there are no themes or support files to install.
 
+## Usage
+
+```text
+md2pdf [options] INPUT.md [OUTPUT.pdf]
+```
+
+The default output is beside the source file with a `.pdf` extension.
+
+```sh
+./md2pdf README.md
+./md2pdf --toc --number-sections report.md report.pdf
+./md2pdf --page-size Letter --margin 0.75in notes.md
+./md2pdf --css company.css -o handout.pdf handout.md
+```
+
+Run `./md2pdf --help` for all options.
+
 ## Install
 
 The simplest installation installs `md2pdf` and both runtime dependencies in
@@ -34,23 +51,6 @@ If Pandoc or WeasyPrint is unavailable and Homebrew is installed, `md2pdf` names
 every missing command and offers to install it. Answer `y` at the prompt to
 continue, or pass `--install-dependencies` to approve the Homebrew installation
 without prompting. If you decline, it prints the command you can run yourself.
-
-## Usage
-
-```text
-md2pdf [options] INPUT.md [OUTPUT.pdf]
-```
-
-The default output is beside the source file with a `.pdf` extension.
-
-```sh
-./md2pdf README.md
-./md2pdf --toc --number-sections report.md report.pdf
-./md2pdf --page-size Letter --margin 0.75in notes.md
-./md2pdf --css company.css -o handout.pdf handout.md
-```
-
-Run `./md2pdf --help` for all options.
 
 ## Markdown features
 
