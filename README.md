@@ -11,6 +11,16 @@ there are no themes or support files to install.
 md2pdf [options] INPUT.md [OUTPUT.pdf]
 ```
 
+Options include:
+
+- `-o, --output FILE` — write the PDF to `FILE`
+- `--title TEXT` — set the document title
+- `--toc` — add a table of contents
+- `--number-sections` — number headings
+- `--page-size SIZE` — use A4, Letter, Legal, A5, or A3
+- `--margin LENGTH` — set the page margin, such as `20mm` or `0.75in`
+- `--css FILE` — append a custom stylesheet
+
 The default output is beside the source file with a `.pdf` extension.
 
 ```sh
