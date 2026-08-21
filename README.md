@@ -7,16 +7,18 @@ there are no themes or support files to install.
 
 ## Install
 
-Install the two runtime dependencies with Homebrew:
-
-```sh
-brew install pandoc weasyprint
-```
-
-The application and its dependencies can also be installed together:
+The simplest installation installs `md2pdf` and both runtime dependencies in
+one step:
 
 ```sh
 brew install blater/tap/md2pdf
+```
+
+You can also install the script directly. In that case, install its runtime
+dependencies first:
+
+```sh
+brew install pandoc weasyprint
 ```
 
 Then put the script somewhere on your `PATH`, for example:
