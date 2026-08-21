@@ -1,0 +1,484 @@
+#!/usr/bin/env bash
+
+set -u
+
+VERSION="0.1.0"
+
+usage() {
+  cat <<'EOF'
+Usage: md2pdf [options] INPUT.md [OUTPUT.pdf]
+
+Convert Markdown to a polished PDF using Pandoc and WeasyPrint.
+
+Options:
+  -o, --output FILE       Write the PDF to FILE
+      --install-dependencies
+                           Install missing dependencies with Homebrew
+      --title TEXT        Set the document title (overrides Markdown metadata)
+      --toc               Add a table of contents
+      --number-sections   Number headings
+      --page-size SIZE    A4, Letter, Legal, A5, or A3 (default: A4)
+      --margin LENGTH     Page margin, e.g. 20mm or 0.75in (default: 20mm)
+      --css FILE          Append a custom stylesheet
+  -h, --help              Show this help
+      --version           Show the version
+
+Examples:
+  md2pdf README.md
+  md2pdf --toc --page-size Letter notes.md notes.pdf
+  md2pdf --css company.css -o report.pdf report.md
+EOF
+}
+
+die() {
+  printf 'md2pdf: error: %s\n' "$*" >&2
+  exit 1
+}
+
+output=""
+title=""
+page_size="A4"
+margin="20mm"
+custom_css=""
+install_dependencies=0
+want_toc=0
+number_sections=0
+positionals=()
+
+while (($#)); do
+  case "$1" in
+    -o|--output)
+      (($# >= 2)) || die "$1 requires a file"
+      output=$2
+      shift 2
+      ;;
+    --output=*)
+      output=${1#*=}
+      shift
+      ;;
+    --install-dependencies)
+      install_dependencies=1
+      shift
+      ;;
+    --title)
+      (($# >= 2)) || die "$1 requires text"
+      title=$2
+      shift 2
+      ;;
+    --title=*)
+      title=${1#*=}
+      shift
+      ;;
+    --toc)
+      want_toc=1
+      shift
+      ;;
+    --number-sections)
+      number_sections=1
+      shift
+      ;;
+    --page-size)
+      (($# >= 2)) || die "$1 requires a size"
+      page_size=$2
+      shift 2
+      ;;
+    --page-size=*)
+      page_size=${1#*=}
+      shift
+      ;;
+    --margin)
+      (($# >= 2)) || die "$1 requires a length"
+      margin=$2
+      shift 2
+      ;;
+    --margin=*)
+      margin=${1#*=}
+      shift
+      ;;
+    --css)
+      (($# >= 2)) || die "$1 requires a file"
+      custom_css=$2
+      shift 2
+      ;;
+    --css=*)
+      custom_css=${1#*=}
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --version)
+      printf 'md2pdf %s\n' "$VERSION"
+      exit 0
+      ;;
+    --)
+      shift
+      while (($#)); do
+        positionals+=("$1")
+        shift
+      done
+      ;;
+    -*)
+      die "unknown option '$1' (try --help)"
+      ;;
+    *)
+      positionals+=("$1")
+      shift
+      ;;
+  esac
+done
+
+((${#positionals[@]} >= 1)) || { usage >&2; exit 2; }
+((${#positionals[@]} <= 2)) || die "too many arguments (try --help)"
+
+input=${positionals[0]}
+if ((${#positionals[@]} == 2)); then
+  [[ -z "$output" ]] || die "output was supplied both with --output and as an argument"
+  output=${positionals[1]}
+fi
+
+case "$page_size" in
+  A4|Letter|Legal|A5|A3) ;;
+  *) die "unsupported page size '$page_size' (use A4, Letter, Legal, A5, or A3)" ;;
+esac
+
+[[ "$margin" =~ ^([0-9]+([.][0-9]+)?)(mm|cm|in|pt)$ ]] || \
+  die "invalid margin '$margin' (examples: 20mm, 2cm, 0.75in, 54pt)"
+
+[[ -f "$input" ]] || die "input file not found: $input"
+[[ -r "$input" ]] || die "input file is not readable: $input"
+
+if [[ -n "$custom_css" ]]; then
+  [[ -f "$custom_css" ]] || die "stylesheet not found: $custom_css"
+  [[ -r "$custom_css" ]] || die "stylesheet is not readable: $custom_css"
+fi
+
+missing=()
+for command_name in pandoc weasyprint; do
+  command -v "$command_name" >/dev/null 2>&1 || missing+=("$command_name")
+done
+
+if ((${#missing[@]})); then
+  printf 'md2pdf: error: required command(s) not found on PATH: %s\n' "${missing[*]}" >&2
+  if command -v brew >/dev/null 2>&1; then
+    printf 'They can be installed with Homebrew:\n  brew install %s\n' "${missing[*]}" >&2
+
+    install_now=0
+    if ((install_dependencies)); then
+      install_now=1
+    elif [[ -t 0 && -t 2 ]]; then
+      printf 'Install the missing dependencies now? [y/N] ' >&2
+      answer=''
+      read -r answer
+      case "$answer" in
+        y|Y|yes|YES|Yes) install_now=1 ;;
+      esac
+    fi
+
+    if ((install_now)); then
+      printf 'Installing missing dependencies with Homebrew...\n' >&2
+      if ! brew install "${missing[@]}"; then
+        printf 'md2pdf: error: Homebrew could not install the missing dependencies.\n' >&2
+        exit 127
+      fi
+
+      still_missing=()
+      for command_name in "${missing[@]}"; do
+        command -v "$command_name" >/dev/null 2>&1 || still_missing+=("$command_name")
+      done
+      if ((${#still_missing[@]})); then
+        printf 'md2pdf: error: dependency installation completed, but these commands are still not on PATH: %s\n' \
+          "${still_missing[*]}" >&2
+        exit 127
+      fi
+    fi
+  else
+    printf 'On macOS or Linux with Homebrew, install them with:\n' >&2
+    printf '  brew install %s\n' "${missing[*]}" >&2
+    printf 'Otherwise, install Pandoc and WeasyPrint with your system package manager.\n' >&2
+  fi
+  exit 127
+fi
+
+input_dir=$(cd "$(dirname "$input")" && pwd -P) || die "cannot resolve input directory"
+input_abs="$input_dir/$(basename "$input")"
+
+if [[ -z "$output" ]]; then
+  input_name=$(basename "$input")
+  if [[ "$input_name" == *.* && "$input_name" != "." && "$input_name" != ".." ]]; then
+    output_name=${input_name%.*}.pdf
+  else
+    output_name=${input_name}.pdf
+  fi
+  output="$input_dir/$output_name"
+fi
+
+output_dir=$(dirname "$output")
+[[ -d "$output_dir" ]] || die "output directory does not exist: $output_dir"
+[[ -w "$output_dir" ]] || die "output directory is not writable: $output_dir"
+if [[ -e "$output" && ! -w "$output" ]]; then
+  die "output file is not writable: $output"
+fi
+
+output_dir_abs=$(cd "$output_dir" && pwd -P) || die "cannot resolve output directory"
+output_abs="$output_dir_abs/$(basename "$output")"
+[[ "$input_abs" != "$output_abs" ]] || die "input and output paths must be different"
+
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/md2pdf.XXXXXX") || die "could not create a temporary directory"
+staged_pdf=""
+cleanup() {
+  [[ -z "${staged_pdf:-}" ]] || rm -f "$staged_pdf"
+  rm -rf "$tmp_dir"
+}
+trap cleanup EXIT HUP INT TERM
+staged_pdf=$(mktemp "$output_dir_abs/.md2pdf.XXXXXX") || die "could not stage the output PDF"
+
+builtin_css="$tmp_dir/style.css"
+html_file="$tmp_dir/document.html"
+clean_html_file="$tmp_dir/document-clean.html"
+metadata_filter="$tmp_dir/metadata.lua"
+
+cat >"$builtin_css" <<EOF
+@page {
+  size: $page_size;
+  margin: $margin;
+
+  @bottom-center {
+    content: counter(page);
+    color: #718096;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 8.5pt;
+  }
+}
+
+@page :first {
+  @bottom-center { content: none; }
+}
+
+:root {
+  color: #202936;
+  font-family: Charter, "Bitstream Charter", "Noto Serif", Georgia, serif;
+  font-size: 10.5pt;
+  line-height: 1.55;
+}
+
+html { hyphens: auto; }
+
+body {
+  color: #202936;
+  font-kerning: normal;
+  orphans: 3;
+  widows: 3;
+}
+
+header#title-block-header {
+  border-bottom: 2px solid #2563a6;
+  margin: 0 0 2.3rem;
+  padding: 0 0 1rem;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  break-after: avoid;
+  color: #172033;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", sans-serif;
+  font-weight: 600;
+  hyphens: none;
+  line-height: 1.2;
+  margin: 1.7em 0 0.55em;
+}
+
+h1 { font-size: 24pt; letter-spacing: -0.025em; }
+h2 { border-bottom: 1px solid #d8dee9; font-size: 17pt; padding-bottom: 0.22em; }
+h3 { font-size: 13pt; }
+h4 { font-size: 11pt; }
+
+#title-block-header .title {
+  border: 0;
+  color: #172033;
+  font-size: 29pt;
+  letter-spacing: -0.035em;
+  margin: 0 0 0.3rem;
+  padding: 0;
+}
+
+#title-block-header .subtitle { color: #4a5568; font-size: 15pt; margin: 0.3rem 0; }
+#title-block-header .author,
+#title-block-header .date { color: #607086; margin: 0.15rem 0; }
+
+p { margin: 0.65em 0; }
+a { color: #1f5f99; text-decoration: none; }
+strong { color: #172033; }
+mark { background: #fff2a8; padding: 0.05em 0.15em; }
+
+blockquote {
+  border-left: 3px solid #5b8db8;
+  color: #4a5568;
+  margin: 1.1em 0;
+  padding: 0.2em 0 0.2em 1.1em;
+}
+
+blockquote > :first-child { margin-top: 0; }
+blockquote > :last-child { margin-bottom: 0; }
+
+ul, ol { margin: 0.65em 0; padding-left: 1.6em; }
+li { margin: 0.18em 0; }
+li > p { margin: 0.25em 0; }
+
+code, kbd, samp {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", "Noto Sans Mono", monospace;
+  font-size: 0.88em;
+  hyphens: none;
+}
+
+code {
+  background: #f0f3f7;
+  border: 1px solid #e0e5eb;
+  border-radius: 3px;
+  padding: 0.08em 0.25em;
+}
+
+pre {
+  background: #f5f7fa;
+  border: 1px solid #dce2e9;
+  border-left: 3px solid #5b8db8;
+  border-radius: 4px;
+  break-inside: avoid;
+  line-height: 1.42;
+  margin: 1em 0;
+  padding: 0.85em 1em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+pre code { background: transparent; border: 0; padding: 0; }
+
+table {
+  border-collapse: collapse;
+  font-size: 9.2pt;
+  margin: 1.2em 0;
+  width: 100%;
+}
+
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+th, td { border-bottom: 1px solid #d8dee9; padding: 0.48em 0.62em; text-align: left; vertical-align: top; }
+th { background: #edf2f7; color: #172033; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-weight: 600; }
+tbody tr:nth-child(even) { background: #fafbfd; }
+
+figure { break-inside: avoid; margin: 1.3em auto; text-align: center; }
+img, svg { height: auto; max-width: 100%; }
+figcaption { color: #607086; font-size: 9pt; margin-top: 0.5em; }
+
+hr { border: 0; border-top: 1px solid #cbd3dd; margin: 2em 0; }
+
+nav#TOC {
+  background: #f7f9fb;
+  border: 1px solid #dce2e9;
+  border-radius: 5px;
+  margin: 1.4em 0 2em;
+  padding: 0.8em 1.2em;
+}
+
+nav#TOC::before {
+  color: #172033;
+  content: "Contents";
+  display: block;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 15pt;
+  font-weight: 600;
+  margin-bottom: 0.45em;
+}
+
+nav#TOC ul { list-style: none; margin: 0.25em 0; padding-left: 1em; }
+nav#TOC > ul { padding-left: 0; }
+
+.footnotes { border-top: 1px solid #cbd3dd; color: #4a5568; font-size: 8.8pt; margin-top: 2em; }
+.footnotes hr { display: none; }
+.footnote-back { font-size: 0; }
+.footnote-back::after { content: " back"; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 8pt; }
+
+ul.task-list { padding-left: 1.35em; }
+ul.task-list li { break-inside: avoid; list-style: none; }
+ul.task-list li label { display: block; }
+.task-checkbox {
+  color: #607086;
+  display: inline-block;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.82em;
+  margin-left: -1.35em;
+  margin-right: 0.4em;
+  width: 1.55em;
+}
+.task-checkbox.checked { color: #1f5f99; font-weight: bold; }
+
+.page-break { break-after: page; }
+
+/* Pandoc's default syntax-highlighting token classes. */
+code span.al { color: #b91c1c; font-weight: bold; }
+code span.an, code span.co, code span.cv, code span.in { color: #667085; font-style: italic; }
+code span.at, code span.dt, code span.pp { color: #7c3aed; }
+code span.bn, code span.dv, code span.fl { color: #b45309; }
+code span.bu, code span.cf, code span.kw { color: #1d4ed8; font-weight: 600; }
+code span.ch, code span.sc, code span.st, code span.vs { color: #047857; }
+code span.cn, code span.er, code span.va { color: #b91c1c; }
+code span.fu { color: #6d28d9; }
+code span.op { color: #334155; }
+EOF
+
+cat >"$metadata_filter" <<'EOF'
+function Meta(meta)
+  if meta.title == nil and meta.pagetitle == nil then
+    meta.pagetitle = meta["md2pdf-fallback-title"]
+  end
+  meta["md2pdf-fallback-title"] = nil
+  return meta
+end
+EOF
+
+pandoc_args=(
+  "$input_abs"
+  --from=markdown
+  --to=html5
+  --standalone
+  --embed-resources
+  --resource-path="$input_dir"
+  --syntax-highlighting=pygments
+  --wrap=none
+  --css="$builtin_css"
+  --metadata="md2pdf-fallback-title:$(basename "${input_abs%.*}")"
+  --lua-filter="$metadata_filter"
+  --output="$html_file"
+)
+
+((want_toc)) && pandoc_args+=(--toc --toc-depth=3)
+((number_sections)) && pandoc_args+=(--number-sections)
+[[ -n "$title" ]] && pandoc_args+=(--metadata="title:$title")
+[[ -n "$custom_css" ]] && pandoc_args+=(--css="$custom_css")
+
+if ! pandoc "${pandoc_args[@]}"; then
+  die "Pandoc could not convert '$input' to HTML"
+fi
+
+# Pandoc's line-number CSS includes one browser-only property that WeasyPrint
+# warns about. Removing that no-op declaration keeps normal output quiet.
+if ! sed \
+  -e 's#<input type="checkbox" checked></input>#<span class="task-checkbox checked">[x]</span>#g' \
+  -e 's#<input type="checkbox"></input>#<span class="task-checkbox">[ ]</span>#g' \
+  -e 's#<input type="checkbox" checked="" />#<span class="task-checkbox checked">[x]</span>#g' \
+  -e 's#<input type="checkbox" />#<span class="task-checkbox">[ ]</span>#g' \
+  -e 's/; user-select: none;/;/' \
+  "$html_file" >"$clean_html_file"; then
+  die "could not prepare the generated HTML"
+fi
+
+if ! weasyprint "$clean_html_file" "$staged_pdf"; then
+  die "WeasyPrint could not render '$input' as PDF"
+fi
+
+if ! mv "$staged_pdf" "$output_abs"; then
+  die "could not write PDF to '$output'"
+fi
+staged_pdf=""
+
+printf 'Created %s\n' "$output_abs"
