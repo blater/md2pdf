@@ -34,33 +34,9 @@ Run `./md2pdf --help` for all options.
 
 ## Install
 
-The simplest installation installs `md2pdf` and both runtime dependencies in
-one step:
-
 ```sh
 brew install blater/tap/md2pdf
 ```
-
-You can also install the script directly. In that case, install its runtime
-dependencies first:
-
-```sh
-brew install pandoc weasyprint
-```
-
-Then put the script somewhere on your `PATH`, for example:
-
-```sh
-install -m 755 md2pdf /usr/local/bin/md2pdf
-```
-
-On Apple Silicon Macs, `/opt/homebrew/bin` is usually a better destination than
-`/usr/local/bin`. You can also run `./md2pdf` directly from this directory.
-
-If Pandoc or WeasyPrint is unavailable and Homebrew is installed, `md2pdf` names
-every missing command and offers to install it. Answer `y` at the prompt to
-continue, or pass `--install-dependencies` to approve the Homebrew installation
-without prompting. If you decline, it prints the command you can run yourself.
 
 ## Markdown features
 
